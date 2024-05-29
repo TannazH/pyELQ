@@ -1010,6 +1010,15 @@ class Plot:
         result_iteration_vals = np.tile(result_iteration_vals, (max_nof_sources, 1)).flatten()
         results_estimates = model_object.mcmc.store["s"].flatten()
 
+        if 's_f' in model_object.mcmc.store.keys():
+            source_emission = deepcopy(model_object.mcmc.store["s"])
+            source_fix_emission = deepcopy(model_object.mcmc.store["s_f"])
+            source_emission[np.isnan(source_emission)] = 0
+            source_fix_emission[np.isnan(source_fix_emission)] = 0
+            results_estimates = (source_emission + source_fix_emission)
+            results_estimates[np.where(results_estimates == 0)[0]] = np.nan
+            results_estimates = results_estimates.flatten()
+            
         result_weighted, _ = np.histogramdd(
             sample=np.array([result_x_vals, result_y_vals, result_iteration_vals]).T,
             bins=[x_edges, y_edges, iteration_edges],
