@@ -468,7 +468,18 @@ class SourceModel(Component, SourceGrouping, SourceDistribution):
     prior_precision_rate: Union[float, np.ndarray] = 1e-3
     initial_precision: Union[float, np.ndarray] = 1.0
     precision_scalar: np.ndarray = field(init=False)
-
+    state_keys: dict = {
+        "source": "s",
+        "coupling": "A",
+        "allocation": "alloc_s",
+        "precision": "lambda_s",
+        "mu": "mu_s",
+        "locations": "z_src",
+        "number_sources": "n_src",
+        "rho": "rho",
+        "a_lam_s": "a_lam_s",
+        "b_lam_s": "b_lam_s",
+        }
     coverage_detection: float = 0.1
     coverage_test_source: float = 6.0
 
@@ -574,15 +585,16 @@ class SourceModel(Component, SourceGrouping, SourceDistribution):
             state (dict): state dictionary containing updated coupling information.
 
         """
-        self.dispersion_model.source_map.location.from_array(state["z_src"][:, [update_column]].T)
+
+        self.dispersion_model.source_map.location.from_array(state[self.state_keys["locations"]][:, [update_column]].T)
         new_coupling = self.dispersion_model.compute_coupling(
             self.sensor_object, self.meteorology, self.gas_species, output_stacked=True, run_interpolation=False
         )
 
-        if update_column == state["A"].shape[1]:
-            state["A"] = np.concatenate((state["A"], new_coupling), axis=1)
-        elif update_column < state["A"].shape[1]:
-            state["A"][:, [update_column]] = new_coupling
+        if update_column == state[self.state_keys["coupling"]].shape[1]:
+            state[self.state_keys["coupling"]] = np.concatenate((state[self.state_keys["coupling"]], new_coupling), axis=1)
+        elif update_column < state[self.state_keys["coupling"]].shape[1]:
+            state[self.state_keys["coupling"]][:, [update_column]] = new_coupling
         else:
             raise ValueError("Invalid column specification for updating.")
         return state
@@ -620,10 +632,10 @@ class SourceModel(Component, SourceGrouping, SourceDistribution):
                 (i.e. log[p(current | proposed)])
 
         """
-        prop_state = self.update_coupling_column(prop_state, int(prop_state["n_src"]) - 1)
-        prop_state["alloc_s"] = np.concatenate((prop_state["alloc_s"], np.array([0], ndmin=2)), axis=0)
+        prop_state = self.update_coupling_column(prop_state, int(prop_state[self.state_keys["number_sources"]]) - 1)
+        prop_state[self.state_keys["allocation"]] = np.concatenate((prop_state[self.state_keys["allocation"]], np.array([0], ndmin=2)), axis=0)
         in_cov_area = self.dispersion_model.compute_coverage(
-            prop_state["A"][:, -1], coverage_threshold=self.coverage_threshold
+            prop_state[self.state_keys["coupling"]][:, -1], coverage_threshold=self.coverage_threshold
         )
         if not in_cov_area:
             logp_pr_g_cr = 1e10
@@ -633,8 +645,7 @@ class SourceModel(Component, SourceGrouping, SourceDistribution):
 
         return prop_state, logp_pr_g_cr, logp_cr_g_pr
 
-    @staticmethod
-    def death_function(current_state: dict, prop_state: dict, deletion_index: int) -> Tuple[dict, float, float]:
+    def death_function(self, current_state: dict, prop_state: dict, deletion_index: int) -> Tuple[dict, float, float]:
         """Update MCMC state based on source death proposal.
 
         Proposed state updated as follows:
@@ -658,8 +669,9 @@ class SourceModel(Component, SourceGrouping, SourceDistribution):
                 (i.e. log[p(current | proposed)])
 
         """
-        prop_state["A"] = np.delete(prop_state["A"], obj=deletion_index, axis=1)
-        prop_state["alloc_s"] = np.delete(prop_state["alloc_s"], obj=deletion_index, axis=0)
+        
+        prop_state[self.state_keys["coupling"]] = np.delete(prop_state[self.state_keys["coupling"]], obj=deletion_index, axis=1)
+        prop_state[self.state_keys["allocation"]] = np.delete(prop_state[self.state_keys["allocation"]], obj=deletion_index, axis=0)
         logp_pr_g_cr = 0.0
         logp_cr_g_pr = 0.0
 
@@ -682,7 +694,7 @@ class SourceModel(Component, SourceGrouping, SourceDistribution):
         prop_state = deepcopy(current_state)
         prop_state = self.update_coupling_column(prop_state, update_column)
         in_cov_area = self.dispersion_model.compute_coverage(
-            prop_state["A"][:, update_column], coverage_threshold=self.coverage_threshold
+            prop_state[self.state_keys["coupling"]][:, update_column], coverage_threshold=self.coverage_threshold
         )
         if not in_cov_area:
             prop_state = deepcopy(current_state)
@@ -701,16 +713,16 @@ class SourceModel(Component, SourceGrouping, SourceDistribution):
         model = self.make_allocation_model(model)
         model = self.make_source_model(model)
         if self.update_precision:
-            model.append(Gamma("lambda_s", shape="a_lam_s", rate="b_lam_s"))
+            model.append(Gamma(self.state_keys["precision"], shape=self.state_keys["a_lam_s"], rate=self.state_keys["b_lam_s"]))
         if self.reversible_jump:
             model.append(
                 Uniform(
-                    response="z_src",
+                    response=self.state_keys["locations"],
                     domain_response_lower=self.site_limits[:, [0]],
                     domain_response_upper=self.site_limits[:, [1]],
                 )
             )
-            model.append(Poisson(response="n_src", rate="rho"))
+            model.append(Poisson(response=self.state_keys["number_sources"], rate="rho"))
         return model
 
     def make_sampler(self, model: Model, sampler_list: list) -> list:
@@ -727,7 +739,7 @@ class SourceModel(Component, SourceGrouping, SourceDistribution):
         sampler_list = self.make_source_sampler(model, sampler_list)
         sampler_list = self.make_allocation_sampler(model, sampler_list)
         if self.update_precision:
-            sampler_list.append(NormalGamma("lambda_s", model))
+            sampler_list.append(NormalGamma(self.state_keys["precision"], model))
         if self.reversible_jump:
             sampler_list = self.make_sampler_rjmcmc(model, sampler_list)
         return sampler_list
@@ -744,15 +756,15 @@ class SourceModel(Component, SourceGrouping, SourceDistribution):
         """
         state = self.make_allocation_state(state)
         state = self.make_source_state(state)
-        state["A"] = self.coupling
-        state["lambda_s"] = np.array(self.initial_precision, ndmin=1)
+        state[self.state_keys["coupling"]] = self.coupling
+        state[self.state_keys["precision"]] = np.array(self.initial_precision, ndmin=1)
         if self.update_precision:
-            state["a_lam_s"] = np.ones_like(self.initial_precision) * self.prior_precision_shape
-            state["b_lam_s"] = np.ones_like(self.initial_precision) * self.prior_precision_rate
+            state[self.state_keys["a_lam_s"]] = np.ones_like(self.initial_precision) * self.prior_precision_shape
+            state[self.state_keys["b_lam_s"]] = np.ones_like(self.initial_precision) * self.prior_precision_rate
         if self.reversible_jump:
-            state["z_src"] = self.dispersion_model.source_map.location.to_array().T
-            state["n_src"] = state["z_src"].shape[1]
-            state["rho"] = self.rate_num_sources
+            state[self.state_keys["locations"]] = self.dispersion_model.source_map.location.to_array().T
+            state[self.state_keys["number_sources"]] = state[self.state_keys["locations"]].shape[1]
+            state[self.state_keys["rho"]] = self.rate_num_sources
         return state
 
     def make_sampler_rjmcmc(self, model: Model, sampler_list: list) -> list:
@@ -776,7 +788,7 @@ class SourceModel(Component, SourceGrouping, SourceDistribution):
 
         sampler_list.append(
             RandomWalkLoop(
-                "z_src",
+                self.state_keys["locations"],
                 model,
                 step=np.array([1.0, 1.0, 0.1], ndmin=2).T,
                 max_variable_size=(3, self.n_sources_max),
@@ -784,13 +796,13 @@ class SourceModel(Component, SourceGrouping, SourceDistribution):
                 state_update_function=self.move_function,
             )
         )
-        matching_params = {"variable": "s", "matrix": "A", "scale": 1.0, "limits": [0.0, 1e6]}
+        matching_params = {"variable": self.state_keys["source"], "matrix": self.state_keys["coupling"], "scale": 1.0, "limits": [0.0, 1e6]}
         sampler_list.append(
             ReversibleJump(
-                "n_src",
+                self.state_keys["number_sources"],
                 model,
                 step=np.array([1.0], ndmin=2),
-                associated_params="z_src",
+                associated_params=self.state_keys["locations"],
                 n_max=self.n_sources_max,
                 state_birth_function=self.birth_function,
                 state_death_function=self.death_function,
@@ -809,7 +821,7 @@ class SourceModel(Component, SourceGrouping, SourceDistribution):
         self.from_mcmc_group(store)
         self.from_mcmc_dist(store)
         if self.update_precision:
-            self.precision_scalar = store["lambda_s"]
+            self.precision_scalar = store[self.state_keys["precision"]]
 
     def plot_iterations(self, plot: "Plot", burn_in_value: int, y_axis_type: str = "linear") -> "Plot":
         """Plot the emission rate estimates source model object against MCMC iteration.
