@@ -10,33 +10,32 @@ definition.
 
 """
 
+import math
 import re
 import warnings
 from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Callable, Type, Union, cast
 
-import math
 import numpy as np
 import pandas as pd
 import plotly.express as px
 import plotly.figure_factory as ff
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
-
 from geojson import Feature, FeatureCollection
 from openmcmc.mcmc import MCMC
+from plotly.subplots import make_subplots
 from shapely import geometry
 
-from pyelq.dispersion_model.finite_volume import FiniteVolume
-from pyelq.dispersion_model.gaussian_plume import GaussianPlume
 from pyelq.component.background import TemporalBackground
 from pyelq.component.error_model import ErrorModel
 from pyelq.component.offset import PerSensor
 from pyelq.component.source_model import SlabAndSpike, SourceModel
-from pyelq.coordinate_system import LLA, ENU
-from pyelq.source_map import SourceMap
+from pyelq.coordinate_system import ENU, LLA
+from pyelq.dispersion_model.finite_volume import FiniteVolume
+from pyelq.dispersion_model.gaussian_plume import GaussianPlume
 from pyelq.sensor.sensor import Sensor, SensorGroup
+from pyelq.source_map import SourceMap
 from pyelq.support_functions.post_processing import (
     calculate_rectangular_statistics,
     create_lla_polygons_from_xy_points,
@@ -1151,7 +1150,7 @@ class Plot:
         opacity: float = 0.4,
         map_color_scale="jet",
     ):
-        """Function to create coverage plot indicating whether a grid cell is within the coverage region given the 
+        """Function to create coverage plot indicating whether a grid cell is within the coverage region given the
         meteorology information.
 
         Source map is generated for a fixed grid shape of (40, 40, 24) and source locations are generated. Given the
@@ -1181,12 +1180,14 @@ class Plot:
         location_object = ENU(
             ref_latitude=source_model.dispersion_model.source_map.location.ref_latitude,
             ref_longitude=source_model.dispersion_model.source_map.location.ref_longitude,
-            ref_altitude=source_model.dispersion_model.source_map.location.ref_altitude
+            ref_altitude=source_model.dispersion_model.source_map.location.ref_altitude,
         )
         source_map.generate_sources(
             coordinate_object=location_object,
             sourcemap_limits=site_limits,
-            sourcemap_type="grid", nof_sources=math.prod(grid_shape), grid_shape=grid_shape
+            sourcemap_type="grid",
+            nof_sources=math.prod(grid_shape),
+            grid_shape=grid_shape,
         )
         source_model.dispersion_model.source_map = source_map
 
@@ -1195,22 +1196,28 @@ class Plot:
                 sensor_object=model_object.sensor_object,
                 met_windfield=model_object.meteorology,
                 gas_object=model_object.gas_species,
-                output_stacked=True)
+                output_stacked=True,
+            )
         elif isinstance(source_model.dispersion_model, GaussianPlume):
             coupling_matrix = source_model.dispersion_model.compute_coupling(
                 sensor_object=sensor_object,
-                meteorology_object= model_object.meteorology,
+                meteorology_object=model_object.meteorology,
                 gas_object=model_object.gas_species,
-                output_stacked=True)
+                output_stacked=True,
+            )
         else:
-            raise ValueError((f"Dispersion model {type(source_model.dispersion_model).__name__} not recognized for "
-                              f"coverage plot, only Gaussian Plume and Finite Volume are currently supported."))
-            
+            raise ValueError(
+                (
+                    f"Dispersion model {type(source_model.dispersion_model).__name__} not recognized for "
+                    f"coverage plot, only Gaussian Plume and Finite Volume are currently supported."
+                )
+            )
+
         in_coverage_area = source_model.compute_coverage(coupling_matrix)
 
         grid_locations = source_map.location.to_enu()
         grid_locations_lla = grid_locations.to_lla()
-        
+
         self.figure_dict[dict_key] = go.Figure()
         trace_groups = []
         heights = np.unique(grid_locations.up)
@@ -1231,7 +1238,8 @@ class Plot:
                 opacity=opacity,
                 map_color_scale=map_color_scale,
                 tolerance=1e-7,
-                unit="")
+                unit="",
+            )
             trace.showlegend = False
             trace.showscale = False
             self.figure_dict[dict_key].add_trace(trace)
@@ -1248,12 +1256,12 @@ class Plot:
                         marker=marker_dict,
                         line={"width": 3},
                         name=sensor.label,
-                        showlegend=True
+                        showlegend=True,
                     )
-                    )
+                )
                 group_idxs.append(len(self.figure_dict[dict_key].data) - 1)
             trace_groups.append(group_idxs)
-        
+
         steps = []
         n_traces = len(self.figure_dict[dict_key].data)
         base_title = (
@@ -1264,12 +1272,7 @@ class Plot:
             visible = [False] * n_traces
             for idx in trace_groups[i]:
                 visible[idx] = True
-            steps.append(
-                {"method": "restyle",
-                 "args": [{"visible": visible}],
-                 "label": f"{height:.3f} m"
-                }
-            )
+            steps.append({"method": "restyle", "args": [{"visible": visible}], "label": f"{height:.3f} m"})
 
         init_visible = steps[0]["args"][0]["visible"]
         for tr, v in zip(self.figure_dict[dict_key].data, init_visible):
@@ -1284,15 +1287,16 @@ class Plot:
             title=base_title,
             font_family="Futura",
             font_size=15,
-            sliders=[{
-                "active": 0,
-                "font": {"size": 18},
-                "currentvalue": {"prefix": "Height: ", "font": {"size": 18}},
-                "pad": {"t": 40},
-                "steps": steps,
-            }],
+            sliders=[
+                {
+                    "active": 0,
+                    "font": {"size": 18},
+                    "currentvalue": {"prefix": "Height: ", "font": {"size": 18}},
+                    "pad": {"t": 40},
+                    "steps": steps,
+                }
+            ],
         )
-
 
     @staticmethod
     def create_summary_trace(
