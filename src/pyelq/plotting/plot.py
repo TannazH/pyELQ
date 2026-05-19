@@ -1150,8 +1150,7 @@ class Plot:
         opacity: float = 0.4,
         map_color_scale="jet",
     ):
-        """Function to create coverage plot indicating whether a grid cell is within the coverage region given the
-        meteorology information.
+        """Function to create coverage plot showing whether a grid cell is within coverage given the wind information.
 
         Source map is generated for a fixed grid shape of (40, 40, 24) and source locations are generated. Given the
         sensor locations and the meteorology information, the coupling matrix is computed for the dispersion model and
