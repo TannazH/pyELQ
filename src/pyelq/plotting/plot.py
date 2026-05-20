@@ -1152,7 +1152,7 @@ class Plot:
     ):
         """Function to create coverage plot showing whether a grid cell is within coverage given the wind information.
 
-        Source map is generated for a fixed grid shape of (40, 40, 24) and source locations are generated. Given the
+        Source map is generated for a fixed grid shape of (40, 40, 20) and source locations are generated. Given the
         sensor locations and the meteorology information, the coupling matrix is computed for the dispersion model and
         for each grid cell it is determined whether it is in the coverage area or not. Since the grid is defined in 3D,
         a coverage map is created for each height level.
@@ -1173,7 +1173,7 @@ class Plot:
         datetime_min_string = sensor_object.time.min().strftime("%d-%b-%Y, %H:%M:%S")
         datetime_max_string = sensor_object.time.max().strftime("%d-%b-%Y, %H:%M:%S")
         site_limits = source_model.site_limits
-        grid_shape = (40, 40, 24)
+        grid_shape = (40, 40, 20)
 
         source_map = SourceMap()
         location_object = ENU(
